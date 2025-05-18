@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useState, useEffect } from "react"
 import { useRouter, usePathname } from "next/navigation"
+import { createClientComponentClient } from "@supabase/auth-helpers-nextjs"
 
 // Definir el tipo para el contexto de autenticación
 type AuthContextType = {
@@ -22,82 +23,76 @@ type User = {
 
 // Crear el contexto
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
-
-// Datos de usuario de prueba
-const TEST_USERS = [
-  {
-    id: "1",
-    name: "Doña Bere",
-    email: "bere@ejemplo.com",
-    password: "password123",
-    role: "admin",
-  },
-  {
-    id: "2",
-    name: "Carlos",
-    email: "carlos@ejemplo.com",
-    password: "password123",
-    role: "assistant",
-  },
-]
-
-export function AuthProvider({ children }) {
+ 
+export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const router = useRouter()
   const pathname = usePathname()
+  const supabase = createClientComponentClient()
 
-  // Verificar si hay un usuario almacenado en localStorage al cargar
+  // Cargar la sesión al montar
   useEffect(() => {
-    const storedUser = localStorage.getItem("user")
-    if (storedUser) {
-      try {
-        setUser(JSON.parse(storedUser))
-      } catch (error) {
-        console.error("Error parsing stored user:", error)
-        localStorage.removeItem("user")
+    const loadSession = async () => {
+      const { data, error } = await supabase.auth.getSession()
+      const sessionUser = data?.session?.user
+
+      if (sessionUser) {
+        setUser({
+          id: sessionUser.id,
+          name: sessionUser.user_metadata?.full_name || "", // opcional, si usas metadata
+          email: sessionUser.email || "",
+          role: sessionUser.user_metadata?.role || "user",
+        })
+      } else {
+        setUser(null)
       }
+
+      setIsLoading(false)
     }
-    setIsLoading(false)
+
+    loadSession()
   }, [])
 
-  // Redirigir según el estado de autenticación
+  // Redirecciones automáticas
   useEffect(() => {
     if (!isLoading) {
-      // Si no está autenticado y no está en la página de login, redirigir a login
       if (!user && pathname !== "/login") {
         router.push("/login")
-      }
-      // Si está autenticado y está en la página de login, redirigir a la página principal
-      else if (user && pathname === "/login") {
-        router.push("/")
+      } else if (user && pathname === "/login") {
+        router.push("/data-upload") // redirección principal después del login
       }
     }
   }, [user, isLoading, pathname, router])
 
-  // Función de inicio de sesión
+  // Login real con Supabase
   const login = async (email: string, password: string, rememberMe: boolean): Promise<boolean> => {
-    // En una aplicación real, aquí se haría la llamada a la API
-    const foundUser = TEST_USERS.find((u) => u.email === email && u.password === password)
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password })
 
-    if (foundUser) {
-      // Crear objeto de usuario sin la contraseña
-      const { password: _, ...userWithoutPassword } = foundUser
-      setUser(userWithoutPassword)
+    if (error || !data.session) return false
 
-      // Si rememberMe está activado, guardar en localStorage
-      if (rememberMe) {
-        localStorage.setItem("user", JSON.stringify(userWithoutPassword))
-      }
+    const sessionUser = data.session.user
 
-      return true
+    const newUser = {
+      id: sessionUser.id,
+      name: sessionUser.user_metadata?.full_name || "",
+      email: sessionUser.email || "",
+      role: sessionUser.user_metadata?.role || "user",
     }
 
-    return false
+    setUser(newUser)
+
+    // Si quieres recordar usuario manualmente (opcional)
+    if (rememberMe) {
+      localStorage.setItem("user", JSON.stringify(newUser))
+    }
+
+    return true
   }
 
-  // Función de cierre de sesión
-  const logout = () => {
+  // Logout usando Supabase
+  const logout = async () => {
+    await supabase.auth.signOut()
     setUser(null)
     localStorage.removeItem("user")
     router.push("/login")
@@ -114,7 +109,7 @@ export function AuthProvider({ children }) {
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }
 
-// Hook personalizado para usar el contexto de autenticación
+// Hook personalizado
 export function useAuth() {
   const context = useContext(AuthContext)
   if (context === undefined) {

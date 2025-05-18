@@ -1,47 +1,85 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Checkbox } from "@/components/ui/checkbox"
-import { useAuth } from "@/context/auth-context"
 import { Utensils } from "lucide-react"
+import { createClientComponentClient } from "@supabase/auth-helpers-nextjs"
+import { AlertCircle } from "lucide-react"
 
 export default function LoginPage() {
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [rememberMe, setRememberMe] = useState(false)
   const [error, setError] = useState("")
+  const [configError, setConfigError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
-  const { login } = useAuth()
   const router = useRouter()
 
-  const handleSubmit = async (e) => {
-    e.preventDefault()
-    setError("")
-    setIsLoading(true)
+  const isMissingEnvVars =
+    typeof process.env.NEXT_PUBLIC_SUPABASE_URL === "undefined" ||
+    typeof process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY === "undefined"
 
-    try {
-      // Simulamos una pequeña demora para mostrar el estado de carga
-      await new Promise((resolve) => setTimeout(resolve, 1000))
+  const supabase = createClientComponentClient()
 
-      // En una aplicación real, aquí se haría la llamada a la API de autenticación
-      const success = await login(email, password, rememberMe)
-
-      if (success) {
-        router.push("/")
-      } else {
-        setError("Credenciales incorrectas. Por favor, inténtelo de nuevo.")
-      }
-    } catch (err) {
-      setError("Ocurrió un error al iniciar sesión. Por favor, inténtelo de nuevo.")
-      console.error(err)
-    } finally {
-      setIsLoading(false)
+  useEffect(() => {
+    if (isMissingEnvVars) {
+      setConfigError(
+        "Faltan variables de entorno de Supabase. Por favor configura NEXT_PUBLIC_SUPABASE_URL y NEXT_PUBLIC_SUPABASE_ANON_KEY."
+      )
     }
+  }, [isMissingEnvVars])
+
+  const handleSubmit = async (e: React.FormEvent) => {
+  e.preventDefault()
+  setError("")
+  setIsLoading(true)
+
+  try {
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    })
+
+    if (error || !data.session) {
+      throw error || new Error("No se pudo iniciar sesión")
+    }
+
+    //Forzar recarga completa para que la sesión sea detectada por el AuthContext
+    window.location.href = "/data-upload"
+
+  } catch (err: any) {
+    setError(err.message || "Ocurrió un error al iniciar sesión.")
+  } finally {
+    setIsLoading(false)
+  }
+}
+
+  if (configError) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
+        <div className="max-w-md w-full bg-white p-6 rounded-lg shadow">
+          <div className="flex items-start gap-3 text-red-600 mb-4">
+            <AlertCircle className="h-6 w-6 mt-1" />
+            <div>
+              <h3 className="font-bold">Error de Configuración</h3>
+              <p>{configError}</p>
+            </div>
+          </div>
+          <div className="mt-4 text-sm">
+            Asegúrate de definir:
+            <pre className="mt-2 p-2 bg-gray-100 text-gray-800 rounded">
+              NEXT_PUBLIC_SUPABASE_URL=<br />
+              NEXT_PUBLIC_SUPABASE_ANON_KEY=
+            </pre>
+          </div>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -59,7 +97,7 @@ export default function LoginPage() {
         <Card>
           <CardHeader>
             <CardTitle>Iniciar Sesión</CardTitle>
-            <CardDescription>Ingrese sus credenciales para acceder al sistema de predicción</CardDescription>
+            <CardDescription>Ingrese sus credenciales para acceder al sistema</CardDescription>
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-4">
@@ -115,7 +153,7 @@ export default function LoginPage() {
         </Card>
 
         <p className="text-center text-xs text-gray-500 mt-8">
-          © 2023 Predicción Gastronómica. Todos los derechos reservados.
+          © 2025 Predicción Gastronómica. Todos los derechos reservados.
         </p>
       </div>
     </div>
